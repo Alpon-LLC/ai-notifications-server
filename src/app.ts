@@ -8,11 +8,13 @@ import createApiRouter from './routes';
 import { log } from './logger';
 import { DeploymentService } from './services/deployment.service';
 import type { GitHubPrReviewRoutesOptions } from './routes/github-pr-review.routes';
+import { SlackService } from './services/slack.service';
 
 export interface CreateAppOptions {
   deployWebhookSecret: string;
   deploymentService?: InstanceType<typeof DeploymentService>;
   githubPrReview?: GitHubPrReviewRoutesOptions;
+  slackService?: SlackService;
 }
 
 export function createApp(options: CreateAppOptions) {

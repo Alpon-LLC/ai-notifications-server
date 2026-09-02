@@ -1,7 +1,9 @@
+import { PrismaClient } from '@prisma/client';
 import { createApp } from './app';
 import { loadDeployWebhookSecret } from './config/deploy-secret';
 import { log } from './logger';
 import { FileDeliveryStore, GitHubPrReviewService, RestGitHubClient, defaultDeliveryDirectory } from './services/github-pr-review.service';
+import { SlackService } from './services/slack.service';
 
 async function main() {
   const port = Number.parseInt(process.env.PORT ?? '', 10) || 3000;
@@ -16,10 +18,14 @@ async function main() {
   const internalSecret = process.env.JOHN_PR_REVIEW_HMAC_SECRET;
   const githubToken = process.env.GITHUB_TOKEN;
   const allowedRepositories = (process.env.GITHUB_PR_ALLOWED_REPOSITORIES || '').split(',').map((value) => value.trim()).filter(Boolean);
+  const prisma = new PrismaClient();
+  const slackBotToken = process.env.SLACK_BOT_TOKEN || '';
+  const slackService = slackBotToken ? new SlackService({ botToken: slackBotToken, prisma }) : undefined;
   const githubPrReview = githubWebhookSecret && internalSecret && githubToken && allowedRepositories.length > 0 ? {
     webhookSecret: githubWebhookSecret,
     allowedRepositories,
     service: new GitHubPrReviewService({ githubClient: new RestGitHubClient(githubToken), deliveryStore: new FileDeliveryStore(defaultDeliveryDirectory()), internalSecret, johnUrl: process.env.JOHN_PR_REVIEW_WEBHOOK_URL }),
+    slackService,
   } : undefined;
   const app = createApp({ deployWebhookSecret, githubPrReview });
 
@@ -41,6 +47,7 @@ async function main() {
         process.exitCode = 1;
         return;
       }
+      prisma.$disconnect().catch(() => {});
       log('info', 'server_shutdown_completed', 'HTTP server closed cleanly', { signal });
     });
   }

@@ -9,14 +9,18 @@
     "dev": "node --env-file=.env --watch --import tsx src/server.ts",
     "start": "node --env-file=.env dist/server.js",
     "test": "node --env-file=.env --import tsx --test test/*.test.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "postinstall": "prisma skills sync || exit 0"
   },
   "engines": {
     "node": ">=20.6"
   },
   "dependencies": {
     "@google-cloud/secret-manager": "^6.2.0",
-    "express": "^5.1.0"
+    "@prisma/client": "^6.19.3",
+    "dotenv": "^17.4.2",
+    "express": "^5.1.0",
+    "prisma": "^6.19.3"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
