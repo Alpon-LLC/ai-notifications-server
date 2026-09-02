@@ -1,4 +1,5 @@
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
+import { log } from '../logger';
 
 export const DEFAULT_SECRET_NAME = 'hermes-deploy-webhook-secret';
 
@@ -48,6 +49,9 @@ export async function loadDeployWebhookSecret(
       );
     }
 
+    log('warn', 'deploy_secret_local_override', 'Using explicitly enabled local deployment secret', {
+      node_env: env.NODE_ENV || 'unset',
+    });
     return env.HERMES_DEPLOY_WEBHOOK_SECRET;
   }
 
@@ -59,6 +63,9 @@ export async function loadDeployWebhookSecret(
   const version = env.HERMES_DEPLOY_WEBHOOK_SECRET_VERSION || 'latest';
   const name = secretVersionResource(projectId, secretName, version);
 
+  log('info', 'deploy_secret_loading', 'Loading deployment webhook secret from Secret Manager', {
+    secret_resource: name,
+  });
   const [response] = await client.accessSecretVersion({ name });
   const secretData = response.payload?.data || '';
   const secret = Buffer.from(secretData)
@@ -73,6 +80,10 @@ export async function loadDeployWebhookSecret(
     throw new Error('Deployment webhook secret must contain at least 32 bytes');
   }
 
+  log('info', 'deploy_secret_loaded', 'Deployment webhook secret loaded and validated', {
+    secret_resource: name,
+    secret_bytes: Buffer.byteLength(secret, 'utf8'),
+  });
   return secret;
 }
 
