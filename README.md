@@ -89,3 +89,31 @@ an administrator must run `loginctl enable-linger Work` once.
 The `Work` user also needs narrowly scoped passwordless permission for the
 existing Hermes gateway commands invoked by the stop/start scripts. Do not grant
 blanket passwordless `sudo` to the notification server.
+
+## Logs and debugging
+
+The server writes one JSON object per log line to stdout/stderr, which systemd
+captures in the journal. Every event includes a stable `event` name and useful
+context such as `request_id`, `job_id`, stage, status, exit code, and duration.
+Request bodies, webhook signatures, bearer tokens, and secret values are never
+logged.
+
+Follow live logs:
+
+```bash
+journalctl --user -u hermes-notification-server.service -f -o cat
+```
+
+Inspect errors from the current boot:
+
+```bash
+journalctl --user -u hermes-notification-server.service -b -o cat |
+  jq -R 'fromjson? | select(.level == "error")'
+```
+
+Trace one request or job by copying its ID from GitHub Actions or an API response:
+
+```bash
+journalctl --user -u hermes-notification-server.service -b -o cat |
+  rg 'REQUEST_OR_JOB_ID'
+```

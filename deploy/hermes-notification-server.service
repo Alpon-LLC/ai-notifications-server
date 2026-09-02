@@ -1,0 +1,21 @@
+[Unit]
+Description=Hermes notification and deployment webhook server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/Work/hermes-notification-server
+Environment=NODE_ENV=production
+Environment=HOST=0.0.0.0
+Environment=PORT=3000
+Environment=GOOGLE_CLOUD_PROJECT=stately-atrium-391613
+Environment=HERMES_DEPLOY_WEBHOOK_SECRET_NAME=hermes-deploy-webhook-secret
+ExecStart=/home/Work/.local/bin/node --env-file=/home/Work/hermes-notification-server/.env /home/Work/hermes-notification-server/dist/server.js
+Restart=always
+RestartSec=5s
+TimeoutStopSec=30s
+UMask=0077
+
+[Install]
+WantedBy=default.target

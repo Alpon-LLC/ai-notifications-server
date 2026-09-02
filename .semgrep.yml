@@ -1,0 +1,14 @@
+rules:
+  - id: node-child-process-shell
+    message: Avoid shell command execution with untrusted input.
+    severity: ERROR
+    languages: [javascript, typescript]
+    patterns:
+      - pattern-either:
+          - pattern: child_process.exec(...)
+          - pattern: child_process.execSync(...)
+  - id: express-unsanitized-redirect
+    message: Validate redirect destinations.
+    severity: WARNING
+    languages: [javascript, typescript]
+    pattern: $RES.redirect($REQ.$FIELD)

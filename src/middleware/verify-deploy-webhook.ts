@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
+import { log } from '../logger';
 
 const DEFAULT_MAX_SKEW_SECONDS = 300;
 
@@ -42,6 +43,10 @@ export function createDeployWebhookVerifier(options: VerifyDeployWebhookOptions)
     const signatureHeader = request.get('x-webhook-signature');
 
     if (!/^\d{10}$/.test(timestampHeader || '')) {
+      log('warn', 'webhook_auth_rejected', 'Webhook timestamp header is missing or malformed', {
+        request_id: request.requestId,
+        reason: 'invalid_timestamp_format',
+      });
       return response.status(401).json({ error: 'Invalid webhook authentication' });
     }
 
@@ -49,6 +54,12 @@ export function createDeployWebhookVerifier(options: VerifyDeployWebhookOptions)
     const nowSeconds = Math.floor(now() / 1000);
 
     if (Math.abs(nowSeconds - timestamp) > maxSkewSeconds) {
+      log('warn', 'webhook_auth_rejected', 'Webhook timestamp is outside the allowed clock skew', {
+        request_id: request.requestId,
+        reason: 'timestamp_outside_allowed_skew',
+        skew_seconds: Math.abs(nowSeconds - timestamp),
+        max_skew_seconds: maxSkewSeconds,
+      });
       return response.status(401).json({ error: 'Invalid webhook authentication' });
     }
 
@@ -57,6 +68,10 @@ export function createDeployWebhookVerifier(options: VerifyDeployWebhookOptions)
     )?.[1];
 
     if (!suppliedSignature || !Buffer.isBuffer(request.rawBody)) {
+      log('warn', 'webhook_auth_rejected', 'Webhook signature or raw request body is unavailable', {
+        request_id: request.requestId,
+        reason: suppliedSignature ? 'raw_body_unavailable' : 'invalid_signature_format',
+      });
       return response.status(401).json({ error: 'Invalid webhook authentication' });
     }
 
@@ -67,6 +82,10 @@ export function createDeployWebhookVerifier(options: VerifyDeployWebhookOptions)
       .digest('hex');
 
     if (!safeEqualHex(suppliedSignature, expectedSignature)) {
+      log('warn', 'webhook_auth_rejected', 'Webhook signature validation failed', {
+        request_id: request.requestId,
+        reason: 'signature_mismatch',
+      });
       return response.status(401).json({ error: 'Invalid webhook authentication' });
     }
 
@@ -77,10 +96,17 @@ export function createDeployWebhookVerifier(options: VerifyDeployWebhookOptions)
     }
 
     if (replayCache.has(suppliedSignature)) {
+      log('warn', 'webhook_replay_rejected', 'Webhook signature was already accepted recently', {
+        request_id: request.requestId,
+        reason: 'replayed_signature',
+      });
       return response.status(409).json({ error: 'Webhook request already received' });
     }
 
     replayCache.set(suppliedSignature, nowSeconds + maxSkewSeconds);
+    log('info', 'webhook_auth_accepted', 'Webhook authentication succeeded', {
+      request_id: request.requestId,
+    });
     return next();
   };
 }
