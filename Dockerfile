@@ -33,7 +33,7 @@ RUN npx prisma generate
 
 COPY docker-entrypoint.sh ./
 
-RUN chown -R app:app /app
+RUN mkdir -p /app/data && chown -R app:app /app
 
 USER app
 
