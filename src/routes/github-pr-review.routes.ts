@@ -1,9 +1,10 @@
 import crypto from 'node:crypto';
 import { Router, type Request } from 'express';
 import { GitHubPrReviewService } from '../services/github-pr-review.service';
+import { SlackService } from '../services/slack.service';
 
 const ACTIONS = new Set(['opened', 'reopened', 'synchronize', 'ready_for_review']);
-export interface GitHubPrReviewRoutesOptions { webhookSecret: string; allowedRepositories: string[]; service: GitHubPrReviewService }
+export interface GitHubPrReviewRoutesOptions { webhookSecret: string; allowedRepositories: string[]; service: GitHubPrReviewService; slackService?: SlackService }
 function text(value: unknown, max: number) { return typeof value === 'string' && value.length > 0 && value.length <= max ? value : undefined; }
 
 export function createGitHubPrReviewRoutes(options: GitHubPrReviewRoutesOptions) {
@@ -19,6 +20,13 @@ export function createGitHubPrReviewRoutes(options: GitHubPrReviewRoutesOptions)
     if (!ACTIONS.has(action)) return response.status(422).json({ error: 'Unsupported pull request action' });
     if (!options.allowedRepositories.includes(repository)) return response.status(403).json({ error: 'Repository is not allowed' });
     if (!(await options.service.enqueue({ deliveryId, action, repository, number, actor, headSha }))) return response.status(409).json({ error: 'Duplicate delivery', delivery_id: deliveryId });
+
+    if (action === 'opened' && options.slackService) {
+      const title = text(body?.pull_request?.title, 500) || 'No title';
+      const url = text(body?.pull_request?.html_url, 2000) || '';
+      await options.slackService.sendPrNotification({ deliveryId, repository, number, actor, action, title, url });
+    }
+
     return response.status(202).json({ delivery_id: deliveryId, status: 'queued', status_url: `/api/github/reviews/${deliveryId}` });
   });
   router.get('/reviews/:deliveryId', (request, response) => { const status = options.service.getStatus(request.params.deliveryId); return status ? response.json(status) : response.status(404).json({ error: 'Review delivery not found' }); });
