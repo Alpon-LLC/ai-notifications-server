@@ -36,31 +36,33 @@ export function createApp(options: CreateAppOptions) {
     request.requestId = requestId;
     response.setHeader('X-Request-Id', requestId);
 
+    log('info', 'http_request_received', 'HTTP request received', {
+      request_id: requestId,
+      method: request.method,
+      path: request.originalUrl.split('?', 1)[0],
+    });
+
     response.once('finish', () => {
       const path = request.originalUrl.split('?', 1)[0] ?? request.path;
-      if (
-        response.statusCode >= 400 ||
-        path.startsWith('/api/deployments/')
-      ) {
-        const durationMs =
-          Number(process.hrtime.bigint() - startedAt) / 1_000_000;
-        log(
-          response.statusCode >= 500
-            ? 'error'
-            : response.statusCode >= 400
-              ? 'warn'
-              : 'info',
-          'http_request_completed',
-          'HTTP request completed',
-          {
-            request_id: requestId,
-            method: request.method,
-            path,
-            status_code: response.statusCode,
-            duration_ms: Math.round(durationMs),
-          },
-        );
-      }
+      const durationMs =
+        Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+
+      log(
+        response.statusCode >= 500
+          ? 'error'
+          : response.statusCode >= 400
+            ? 'warn'
+            : 'info',
+        'http_request_completed',
+        'HTTP request completed',
+        {
+          request_id: requestId,
+          method: request.method,
+          path,
+          status_code: response.statusCode,
+          duration_ms: Math.round(durationMs),
+        },
+      );
     });
 
     next();
