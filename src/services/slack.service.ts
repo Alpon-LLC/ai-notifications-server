@@ -54,6 +54,11 @@ export class SlackService {
 
     try {
       const message = this.formatPrMessage(payload, channelId);
+      log('debug', 'slack_api_calling', 'Sending message to Slack API', {
+        delivery_id: payload.deliveryId,
+        channel: channelId,
+        method: 'chat.postMessage',
+      });
       const response = await fetch('https://slack.com/api/chat.postMessage', {
         method: 'POST',
         headers: {
@@ -72,6 +77,11 @@ export class SlackService {
         });
         return false;
       }
+
+      log('debug', 'slack_api_response_ok', 'Slack API responded successfully', {
+        delivery_id: payload.deliveryId,
+        status: response.status,
+      });
 
       await this.prisma.prNotificationEvent.create({
         data: {

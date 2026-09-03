@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { mkdir, open } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { log } from '../logger';
 
 export interface PullRequestSnapshot { title: string; body: string; htmlUrl: string; headSha: string; baseSha: string; baseRef: string; files: Array<{ filename: string; status: string; additions: number; deletions: number; patch?: string }> }
 export interface GitHubClient { getPullRequestAtHead(repository: string, number: number, headSha: string): Promise<PullRequestSnapshot> }
@@ -24,13 +25,25 @@ export class FileDeliveryStore implements DeliveryStore {
 export class RestGitHubClient implements GitHubClient {
   constructor(private readonly token: string) {}
   private async request(path: string) {
+    log('debug', 'github_api_request', 'Fetching from GitHub API', { path });
     const response = await fetch(`https://api.github.com${path}`, { headers: { accept: 'application/vnd.github+json', authorization: `Bearer ${this.token}`, 'user-agent': 'hermes-notification-server', 'x-github-api-version': '2022-11-28' } });
     if (!response.ok) throw new Error(`GitHub API returned ${response.status}`);
     return response.json() as Promise<any>;
   }
   async getPullRequestAtHead(repository: string, number: number, headSha: string) {
+    log('debug', 'github_pr_snapshot_start', 'Fetching pull request snapshot from GitHub', {
+      repository,
+      number,
+      head_sha: headSha.slice(0, 8),
+    });
     const [pr, files] = await Promise.all([this.request(`/repos/${repository}/pulls/${number}`), this.request(`/repos/${repository}/pulls/${number}/files?per_page=100`)]);
     if (pr.head?.sha !== headSha) throw new Error('Pull request head changed before review snapshot');
+    log('debug', 'github_pr_snapshot_complete', 'Pull request snapshot fetched', {
+      repository,
+      number,
+      file_count: files.length,
+      title: pr.title?.slice(0, 100),
+    });
     return { title: pr.title, body: pr.body || '', htmlUrl: pr.html_url, headSha, baseSha: pr.base.sha, baseRef: pr.base.ref, files: files.map((file: any) => ({ filename: file.filename, status: file.status, additions: file.additions, deletions: file.deletions, patch: file.patch })) };
   }
 }
@@ -47,16 +60,44 @@ export class GitHubPrReviewService {
   }
   getStatus(id: string) { return this.statuses.get(id); }
   private async process(request: ReviewRequest) {
+    log('debug', 'github_pr_process_start', 'Starting pull request review processing', {
+      delivery_id: request.deliveryId,
+      repository: request.repository,
+      number: request.number,
+      action: request.action,
+      actor: request.actor,
+      head_sha: request.headSha.slice(0, 8),
+    });
     this.statuses.set(request.deliveryId, { delivery_id: request.deliveryId, status: 'running' });
     try {
       const snapshot = await this.options.githubClient.getPullRequestAtHead(request.repository, request.number, request.headSha);
       const bounded = { schema_version: 1, delivery_id: request.deliveryId, action: request.action, repository: request.repository.slice(0, 200), actor: request.actor.slice(0, 100), pull_request: { number: request.number, title: snapshot.title.slice(0, 500), body: snapshot.body.slice(0, 20_000), url: snapshot.htmlUrl.slice(0, 1000), head_sha: snapshot.headSha, base_sha: snapshot.baseSha, base_ref: snapshot.baseRef.slice(0, 255) }, files: snapshot.files.slice(0, 100).map((file) => ({ ...file, filename: file.filename.slice(0, 1000), patch: file.patch?.slice(0, 20_000) })) };
       const body = JSON.stringify(bounded);
       const headers = { 'content-type': 'application/json', 'x-webhook-signature': crypto.createHmac('sha256', this.options.internalSecret).update(body).digest('hex'), 'x-github-delivery': request.deliveryId };
+      log('debug', 'github_pr_forwarding', 'Forwarding review payload', {
+        delivery_id: request.deliveryId,
+        repository: request.repository,
+        number: request.number,
+        payload_bytes: Buffer.byteLength(body),
+        target: this.options.forwarder ? 'custom_forwarder' : (this.options.johnUrl ?? 'http://127.0.0.1:8642/webhooks/github-pr-review'),
+      });
       if (this.options.forwarder) await this.options.forwarder(body, headers);
       else { const response = await fetch(this.options.johnUrl ?? 'http://127.0.0.1:8642/webhooks/github-pr-review', { method: 'POST', headers, body }); if (!response.ok) throw new Error(`John webhook returned ${response.status}`); }
       this.statuses.set(request.deliveryId, { delivery_id: request.deliveryId, status: 'forwarded' });
-    } catch (error) { this.statuses.set(request.deliveryId, { delivery_id: request.deliveryId, status: 'failed', error: error instanceof Error ? error.message : 'Unknown failure' }); }
+      log('info', 'github_pr_process_complete', 'Pull request review forwarded successfully', {
+        delivery_id: request.deliveryId,
+        repository: request.repository,
+        number: request.number,
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown failure';
+      log('error', 'github_pr_process_failed', 'Pull request review processing failed', {
+        delivery_id: request.deliveryId,
+        repository: request.repository,
+        number: request.number,
+      }, error);
+      this.statuses.set(request.deliveryId, { delivery_id: request.deliveryId, status: 'failed', error: errorMessage });
+    }
   }
 }
 

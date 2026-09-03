@@ -4,6 +4,20 @@ export interface LogContext {
   [key: string]: unknown;
 }
 
+const LEVEL_PRIORITY: Record<LogLevel, number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+};
+
+const configuredLevel: LogLevel =
+  (process.env.LOG_LEVEL as LogLevel) || 'info';
+
+function shouldLog(level: LogLevel): boolean {
+  return LEVEL_PRIORITY[level] >= LEVEL_PRIORITY[configuredLevel];
+}
+
 function serializeError(error: unknown) {
   if (error instanceof Error) {
     return {
@@ -32,6 +46,8 @@ export function log(
   context: LogContext = {},
   error?: unknown,
 ) {
+  if (!shouldLog(level)) return;
+
   const entry = {
     timestamp: new Date().toISOString(),
     level,
