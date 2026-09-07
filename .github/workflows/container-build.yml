@@ -28,7 +28,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE_NAME: ${{ (vars.IMAGE_NAME || format('ghcr.io/{0}', github.repository)) | lower }}
+  IMAGE_NAME: ${{ vars.IMAGE_NAME || format('ghcr.io/{0}', github.repository) }}
 
 jobs:
   build:
@@ -51,6 +51,10 @@ jobs:
             echo "docker_tag=v${VER}" >> "$GITHUB_OUTPUT"
             echo "is_sha=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Normalize image name (lowercase)
+        run: |
+          echo "IMAGE_NAME=$(printf '%s' "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
 
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
