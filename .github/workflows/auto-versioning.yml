@@ -183,7 +183,7 @@ jobs:
         id: meta
         env:
           VERSION: ${{ needs.tag-merged-pr.outputs.new_version }}
-          IMAGE_NAME: ${{ vars.IMAGE_NAME || format('ghcr.io/{0}', github.repository) }}
+          IMAGE_NAME: ${{ (vars.IMAGE_NAME || format('ghcr.io/{0}', github.repository)) | lower }}
         run: |
           if echo "$VERSION" | grep -qE '^[0-9a-f]{7,40}$'; then
             echo "docker_tag=git-${VERSION}" >> "$GITHUB_OUTPUT"
