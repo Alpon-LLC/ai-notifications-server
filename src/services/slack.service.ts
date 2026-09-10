@@ -107,6 +107,109 @@ export class SlackService {
     }
   }
 
+  /**
+   * Fire-and-forget "review started" ping, sent AFTER the review payload was
+   * forwarded to the code-review agent successfully (HTTP 2xx from the
+   * agent's webhook). A Slack failure here must never fail the review
+   * pipeline — callers should `await` but swallow rejections.
+   */
+  async sendReviewStartedNotification(payload: SlackNotificationPayload): Promise<boolean> {
+    if (!this.botToken) {
+      log('warn', 'slack_token_missing', 'SLACK_BOT_TOKEN is not configured', {
+        delivery_id: payload.deliveryId,
+      });
+      return false;
+    }
+
+    const channelId = process.env.PR_REVIEW_SLACK_CHANNEL_ID;
+    if (!channelId) {
+      log('debug', 'slack_channel_missing', 'PR_REVIEW_SLACK_CHANNEL_ID is not configured; skipping review-started notification', {
+        delivery_id: payload.deliveryId,
+      });
+      return false;
+    }
+
+    try {
+      const message = this.formatReviewStartedMessage(payload, channelId);
+      const response = await fetch('https://slack.com/api/chat.postMessage', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Authorization': `Bearer ${this.botToken}`,
+        },
+        body: JSON.stringify(message),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        log('error', 'slack_send_failed', `Slack API returned ${response.status}`, {
+          delivery_id: payload.deliveryId,
+          status: response.status,
+          error: errorText,
+        });
+        return false;
+      }
+
+      log('info', 'review_started_notification_sent', 'PR review-started notification sent to Slack', {
+        delivery_id: payload.deliveryId,
+        repository: payload.repository,
+        number: payload.number,
+        channel: channelId,
+      });
+      return true;
+    } catch (error) {
+      log('error', 'slack_send_error', 'Failed to send review-started notification', {
+        delivery_id: payload.deliveryId,
+      }, error);
+      return false;
+    }
+  }
+
+  private formatReviewStartedMessage(payload: SlackNotificationPayload, channelId: string) {
+    return {
+      channel: channelId,
+      blocks: [
+        {
+          type: 'header',
+          text: {
+            type: 'plain_text',
+            text: `🔍 PR Review Started: ${payload.repository}#${payload.number}`,
+          },
+        },
+        {
+          type: 'section',
+          fields: [
+            {
+              type: 'mrkdwn',
+              text: `*Repository:*\n${payload.repository}`,
+            },
+            {
+              type: 'mrkdwn',
+              text: `*PR #${payload.number}:*\n<${payload.url}|View PR>`,
+            },
+            {
+              type: 'mrkdwn',
+              text: `*Author:*\n${payload.actor}`,
+            },
+            {
+              type: 'mrkdwn',
+              text: `*Status:*\nReview agent dispatched`,
+            },
+          ],
+        },
+        {
+          type: 'context',
+          elements: [
+            {
+              type: 'mrkdwn',
+              text: `Delivery ID: ${payload.deliveryId} · Correctness? Only god knows, but he said it'll do fine.`,
+            },
+          ],
+        },
+      ],
+    };
+  }
+
   private formatPrMessage(payload: SlackNotificationPayload, channelId: string) {
     return {
       channel: channelId,

@@ -24,7 +24,7 @@ async function main() {
   const githubPrReview = githubWebhookSecret && internalSecret && githubToken && allowedRepositories.length > 0 ? {
     webhookSecret: githubWebhookSecret,
     allowedRepositories,
-    service: new GitHubPrReviewService({ githubClient: new RestGitHubClient(githubToken), deliveryStore: new FileDeliveryStore(defaultDeliveryDirectory()), internalSecret, johnUrl: process.env.JOHN_PR_REVIEW_WEBHOOK_URL }),
+    service: new GitHubPrReviewService({ githubClient: new RestGitHubClient(githubToken), deliveryStore: new FileDeliveryStore(defaultDeliveryDirectory()), internalSecret, johnUrl: process.env.JOHN_PR_REVIEW_WEBHOOK_URL, slackService }),
     slackService,
   } : undefined;
   const app = createApp({ deployWebhookSecret, githubPrReview });
