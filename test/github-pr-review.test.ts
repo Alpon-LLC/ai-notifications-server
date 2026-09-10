@@ -47,3 +47,49 @@ test('rejects wrong event and unsupported action', async (t) => { const { baseUr
 test('rejects malformed schema', async (t) => { const { baseUrl } = await fixture(t); assert.equal((await post(baseUrl, JSON.stringify({ action: 'opened' }))).status, 422); });
 test('rejects duplicate delivery deterministically', async (t) => { const { baseUrl } = await fixture(t); const body = JSON.stringify(payload); const delivery = crypto.randomUUID(); assert.equal((await post(baseUrl, body, { 'x-github-delivery': delivery })).status, 202); assert.equal((await post(baseUrl, body, { 'x-github-delivery': delivery })).status, 409); });
 test('rejects repository outside allowlist', async (t) => { const { baseUrl } = await fixture(t); const body = JSON.stringify({ ...payload, repository: { full_name: 'evil/fork' } }); assert.equal((await post(baseUrl, body)).status, 403); });
+
+test('sends review-started notification after successful forward on opened', async (t) => {
+  const sent: { deliveryId: string; repository: string; number: number; action: string }[] = [];
+  const forwarded: { body: string }[] = [];
+  const githubClient: GitHubClient = { getPullRequestAtHead: async (_r, _n, headSha) => ({ title: 'Canonical title', body: '', htmlUrl: 'https://github.com/Alpon-LLC/example/pull/7', headSha, baseSha: 'b'.repeat(40), baseRef: 'main', files: [] }) };
+  const slackCalls: unknown[] = [];
+  const slackService = { sendReviewStartedNotification: async (p: { deliveryId: string; repository: string; number: number; action: string }) => { sent.push(p); slackCalls.push(p); return true; } };
+  const service = new GitHubPrReviewService({ githubClient, deliveryStore: new MemoryDeliveryStore(), internalSecret, forwarder: async (body) => { forwarded.push({ body, signature: 'x' }); }, slackService });
+  const app = createApp({ deployWebhookSecret: 'deploy-test-secret-'.repeat(3), githubPrReview: { webhookSecret: githubSecret, allowedRepositories: ['Alpon-LLC/example'], service } });
+  const server = app.listen(0, '127.0.0.1'); t.after(() => server.close()); await once(server, 'listening');
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const delivery = crypto.randomUUID();
+  const response = await fetch(`${baseUrl}/api/github/webhooks/pull-request`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-hub-signature-256': signature(JSON.stringify(payload)), 'x-github-event': 'pull_request', 'x-github-delivery': delivery }, body: JSON.stringify(payload) });
+  assert.equal(response.status, 202);
+  assert.equal((await waitForForward(baseUrl, delivery)).status, 'forwarded');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]!.deliveryId, delivery);
+  assert.equal(sent[0]!.repository, 'Alpon-LLC/example');
+  assert.equal(sent[0]!.number, 7);
+  assert.equal(sent[0]!.action, 'opened');
+});
+
+test('does not send review-started notification for non-opened actions or forward failures', async (t) => {
+  const sent: unknown[] = [];
+  const slackService = { sendReviewStartedNotification: async () => { sent.push(1); return true; } };
+  // synchronize action: notification must NOT fire (only 'opened' triggers it)
+  const githubClient: GitHubClient = { getPullRequestAtHead: async (_r, _n, headSha) => ({ title: 'T', body: '', htmlUrl: 'https://x', headSha, baseSha: 'b'.repeat(40), baseRef: 'main', files: [] }) };
+  const service = new GitHubPrReviewService({ githubClient, deliveryStore: new MemoryDeliveryStore(), internalSecret, forwarder: async () => {}, slackService });
+  const app = createApp({ deployWebhookSecret: 'deploy-test-secret-'.repeat(3), githubPrReview: { webhookSecret: githubSecret, allowedRepositories: ['Alpon-LLC/example'], service } });
+  const server = app.listen(0, '127.0.0.1'); t.after(() => server.close()); await once(server, 'listening');
+  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const syncPayload = JSON.stringify({ ...payload, action: 'synchronize' });
+  const r1 = await fetch(`${baseUrl}/api/github/webhooks/pull-request`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-hub-signature-256': signature(syncPayload), 'x-github-event': 'pull_request', 'x-github-delivery': crypto.randomUUID() }, body: syncPayload });
+  assert.equal(r1.status, 202);
+  // failed forward: forwarder throws -> no notification
+  const failClient: GitHubClient = { getPullRequestAtHead: async () => { throw new Error('boom'); } };
+  const failService = new GitHubPrReviewService({ githubClient: failClient, deliveryStore: new MemoryDeliveryStore(), internalSecret, forwarder: async () => {}, slackService });
+  const app2 = createApp({ deployWebhookSecret: 'deploy-test-secret-'.repeat(3), githubPrReview: { webhookSecret: githubSecret, allowedRepositories: ['Alpon-LLC/example'], service: failService } });
+  const server2 = app2.listen(0, '127.0.0.1'); t.after(() => server2.close()); await once(server2, 'listening');
+  const base2 = `http://127.0.0.1:${(server2.address() as AddressInfo).port}`;
+  const delivery = crypto.randomUUID();
+  const r2 = await fetch(`${base2}/api/github/webhooks/pull-request`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-hub-signature-256': signature(JSON.stringify(payload)), 'x-github-event': 'pull_request', 'x-github-delivery': delivery }, body: JSON.stringify(payload) });
+  assert.equal(r2.status, 202);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(sent.length, 0);
+});

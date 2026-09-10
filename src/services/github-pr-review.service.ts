@@ -51,7 +51,7 @@ export class RestGitHubClient implements GitHubClient {
 export interface ReviewRequest { deliveryId: string; action: string; repository: string; number: number; actor: string; headSha: string }
 export class GitHubPrReviewService {
   private readonly statuses = new Map<string, ReviewStatus>();
-  constructor(private readonly options: { githubClient: GitHubClient; deliveryStore: DeliveryStore; internalSecret: string; johnUrl?: string; forwarder?: (body: string, headers: Record<string, string>) => Promise<void> }) {}
+  constructor(private readonly options: { githubClient: GitHubClient; deliveryStore: DeliveryStore; internalSecret: string; johnUrl?: string; forwarder?: (body: string, headers: Record<string, string>) => Promise<void>; slackService?: { sendReviewStartedNotification(payload: { deliveryId: string; repository: string; number: number; actor: string; action: string; title: string; url: string }): Promise<boolean> } }) {}
   async enqueue(request: ReviewRequest) {
     if (!(await this.options.deliveryStore.claim(request.deliveryId))) return false;
     this.statuses.set(request.deliveryId, { delivery_id: request.deliveryId, status: 'queued' });
@@ -89,6 +89,17 @@ export class GitHubPrReviewService {
         repository: request.repository,
         number: request.number,
       });
+      if (this.options.slackService && request.action === 'opened') {
+        await this.options.slackService.sendReviewStartedNotification({
+          deliveryId: request.deliveryId,
+          repository: request.repository,
+          number: request.number,
+          actor: request.actor,
+          action: request.action,
+          title: snapshot.title.slice(0, 500),
+          url: snapshot.htmlUrl,
+        });
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown failure';
       log('error', 'github_pr_process_failed', 'Pull request review processing failed', {
