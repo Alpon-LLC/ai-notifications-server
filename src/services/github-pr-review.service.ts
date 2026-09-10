@@ -89,7 +89,7 @@ export class GitHubPrReviewService {
         repository: request.repository,
         number: request.number,
       });
-      if (this.options.slackService && request.action === 'opened') {
+      if (this.options.slackService && (request.action === 'opened' || request.action === 'reopened')) {
         await this.options.slackService.sendReviewStartedNotification({
           deliveryId: request.deliveryId,
           repository: request.repository,
