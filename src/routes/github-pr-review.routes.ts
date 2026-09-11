@@ -113,18 +113,21 @@ export function createGitHubPrReviewRoutes(options: GitHubPrReviewRoutesOptions)
       actor,
     });
 
-    if (action === 'opened' && options.slackService) {
-      const title = text(body?.pull_request?.title, 500) || 'No title';
-      const url = text(body?.pull_request?.html_url, 2000) || '';
-      log('debug', 'github_pr_slack_triggering', 'Triggering Slack notification for new PR', {
-        request_id: request.requestId,
-        delivery_id: deliveryId,
-        repository,
-        number,
-        actor,
-      });
-      await options.slackService.sendPrNotification({ deliveryId, repository, number, actor, action, title, url });
-    }
+    // DISABLED 2026-09-11: PR-opened Slack notifications are handled by
+    // per-repo GitHub Actions workflows; this path double-notified. The
+    // review-started notification (service-level, below) remains active.
+    // if (action === 'opened' && options.slackService) {
+    //   const title = text(body?.pull_request?.title, 500) || 'No title';
+    //   const url = text(body?.pull_request?.html_url, 2000) || '';
+    //   log('debug', 'github_pr_slack_triggering', 'Triggering Slack notification for new PR', {
+    //     request_id: request.requestId,
+    //     delivery_id: deliveryId,
+    //     repository,
+    //     number,
+    //     actor,
+    //   });
+    //   await options.slackService.sendPrNotification({ deliveryId, repository, number, actor, action, title, url });
+    // }
 
     return response.status(202).json({ delivery_id: deliveryId, status: 'queued', status_url: `/api/github/reviews/${deliveryId}` });
   });
