@@ -89,6 +89,13 @@ export class GitHubPrReviewService {
         repository: request.repository,
         number: request.number,
       });
+      if (!this.options.slackService && (request.action === 'opened' || request.action === 'reopened')) {
+        log('debug', 'slack_service_missing', 'slackService is not configured (SLACK_BOT_TOKEN unset); skipping review-started notification', {
+          delivery_id: request.deliveryId,
+          repository: request.repository,
+          number: request.number,
+        });
+      }
       if (this.options.slackService && (request.action === 'opened' || request.action === 'reopened')) {
         await this.options.slackService.sendReviewStartedNotification({
           deliveryId: request.deliveryId,
