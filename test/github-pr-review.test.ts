@@ -79,8 +79,15 @@ test('does not send review-started notification for non-opened actions or forwar
   const server = app.listen(0, '127.0.0.1'); t.after(() => server.close()); await once(server, 'listening');
   const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const syncPayload = JSON.stringify({ ...payload, action: 'synchronize' });
+  const reopenPayload = JSON.stringify({ ...payload, action: 'reopened' });
   const r1 = await fetch(`${baseUrl}/api/github/webhooks/pull-request`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-hub-signature-256': signature(syncPayload), 'x-github-event': 'pull_request', 'x-github-delivery': crypto.randomUUID() }, body: syncPayload });
   assert.equal(r1.status, 202);
+  const deliveryReopen = crypto.randomUUID();
+  const rReopen = await fetch(`${baseUrl}/api/github/webhooks/pull-request`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-hub-signature-256': signature(reopenPayload), 'x-github-event': 'pull_request', 'x-github-delivery': deliveryReopen }, body: reopenPayload });
+  assert.equal(rReopen.status, 202);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  // synchronize did not notify; reopened did
+  assert.equal(sent.length, 1);
   // failed forward: forwarder throws -> no notification
   const failClient: GitHubClient = { getPullRequestAtHead: async () => { throw new Error('boom'); } };
   const failService = new GitHubPrReviewService({ githubClient: failClient, deliveryStore: new MemoryDeliveryStore(), internalSecret, forwarder: async () => {}, slackService });
@@ -91,5 +98,5 @@ test('does not send review-started notification for non-opened actions or forwar
   const r2 = await fetch(`${base2}/api/github/webhooks/pull-request`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-hub-signature-256': signature(JSON.stringify(payload)), 'x-github-event': 'pull_request', 'x-github-delivery': delivery }, body: JSON.stringify(payload) });
   assert.equal(r2.status, 202);
   await new Promise((resolve) => setTimeout(resolve, 30));
-  assert.equal(sent.length, 0);
+  assert.equal(sent.length, 1); // still just the reopened one
 });

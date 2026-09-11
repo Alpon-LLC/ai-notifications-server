@@ -19,6 +19,6 @@ jobs:
         run: semgrep scan --config p/default --config .semgrep.yml --sarif --output semgrep.sarif
       - name: Upload SARIF
         if: always() && hashFiles('semgrep.sarif') != ''
-        uses: github/codeql-action/upload-sarif@04daf014b50eaf106734f5eaf6c2468c8a4af2f6 # v3.30.5
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           sarif_file: semgrep.sarif
