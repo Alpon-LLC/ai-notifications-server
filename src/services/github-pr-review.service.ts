@@ -3,10 +3,10 @@ import { mkdir, open } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { log } from '../logger';
 
-export interface PullRequestSnapshot { title: string; body: string; htmlUrl: string; headSha: string; baseSha: string; baseRef: string; files: Array<{ filename: string; status: string; additions: number; deletions: number; patch?: string }> }
+export interface PullRequestSnapshot { draft: boolean; title: string; body: string; htmlUrl: string; headSha: string; baseSha: string; baseRef: string; files: Array<{ filename: string; status: string; additions: number; deletions: number; patch?: string }> }
 export interface GitHubClient { getPullRequestAtHead(repository: string, number: number, headSha: string): Promise<PullRequestSnapshot> }
 export interface DeliveryStore { claim(deliveryId: string): Promise<boolean> }
-export type ReviewStatus = { delivery_id: string; status: 'queued' | 'running' | 'forwarded' | 'failed'; error?: string };
+export type ReviewStatus = { delivery_id: string; status: 'queued' | 'running' | 'forwarded' | 'failed' | 'skipped'; reason?: 'draft'; error?: string };
 
 export class MemoryDeliveryStore implements DeliveryStore {
   private readonly deliveries = new Set<string>();
@@ -44,7 +44,7 @@ export class RestGitHubClient implements GitHubClient {
       file_count: files.length,
       title: pr.title?.slice(0, 100),
     });
-    return { title: pr.title, body: pr.body || '', htmlUrl: pr.html_url, headSha, baseSha: pr.base.sha, baseRef: pr.base.ref, files: files.map((file: any) => ({ filename: file.filename, status: file.status, additions: file.additions, deletions: file.deletions, patch: file.patch })) };
+    return { draft: pr.draft === true, title: pr.title, body: pr.body || '', htmlUrl: pr.html_url, headSha, baseSha: pr.base.sha, baseRef: pr.base.ref, files: files.map((file: any) => ({ filename: file.filename, status: file.status, additions: file.additions, deletions: file.deletions, patch: file.patch })) };
   }
 }
 
@@ -71,6 +71,13 @@ export class GitHubPrReviewService {
     this.statuses.set(request.deliveryId, { delivery_id: request.deliveryId, status: 'running' });
     try {
       const snapshot = await this.options.githubClient.getPullRequestAtHead(request.repository, request.number, request.headSha);
+      if (snapshot.draft) {
+        this.statuses.set(request.deliveryId, { delivery_id: request.deliveryId, status: 'skipped', reason: 'draft' });
+        log('info', 'github_pr_draft_skipped', 'Draft pull request skipped before forwarding', {
+          delivery_id: request.deliveryId, repository: request.repository, number: request.number,
+        });
+        return;
+      }
       const bounded = { schema_version: 1, delivery_id: request.deliveryId, action: request.action, repository: request.repository.slice(0, 200), actor: request.actor.slice(0, 100), pull_request: { number: request.number, title: snapshot.title.slice(0, 500), body: snapshot.body.slice(0, 20_000), url: snapshot.htmlUrl.slice(0, 1000), head_sha: snapshot.headSha, base_sha: snapshot.baseSha, base_ref: snapshot.baseRef.slice(0, 255) }, files: snapshot.files.slice(0, 100).map((file) => ({ ...file, filename: file.filename.slice(0, 1000), patch: file.patch?.slice(0, 20_000) })) };
       const body = JSON.stringify(bounded);
       const headers = { 'content-type': 'application/json', 'x-webhook-signature': crypto.createHmac('sha256', this.options.internalSecret).update(body).digest('hex'), 'x-github-delivery': request.deliveryId };

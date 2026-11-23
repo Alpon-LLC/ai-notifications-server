@@ -87,6 +87,13 @@ export function createGitHubPrReviewRoutes(options: GitHubPrReviewRoutesOptions)
       return response.status(403).json({ error: 'Repository is not allowed' });
     }
 
+    if (body?.pull_request?.draft === true) {
+      log('info', 'github_pr_draft_skipped', 'Draft pull request skipped before enqueueing', {
+        request_id: request.requestId, delivery_id: deliveryId, repository, number, action,
+      });
+      return response.status(200).json({ delivery_id: deliveryId, status: 'skipped', reason: 'draft' });
+    }
+
     log('debug', 'github_pr_enqueueing', 'Enqueuing pull request for processing', {
       request_id: request.requestId,
       delivery_id: deliveryId,
